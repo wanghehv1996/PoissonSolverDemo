@@ -1,5 +1,6 @@
 #include "PoissonBuilder.h"
-
+#include <iostream>
+using namespace std;
 
 /******************************************************
  * Function:GetDebugBoundaryTypeStr(int boundaryinfo)
@@ -42,6 +43,14 @@ int PoissonBuilder::SetForce(double (*forceFunc)(int, int, int, int)){
 	_forceFunc = forceFunc;
 }
 
+int PoissonBuilder::SetGradientX(double (*gradientXFunc)(int, int, int, int)){
+	_gradientXFunc = gradientXFunc;
+}
+
+int PoissonBuilder::SetGradientY(double (*gradientYFunc)(int, int, int, int)){
+	_gradientYFunc = gradientYFunc;
+}
+
 /******************************************************
  * Function:SetBoundary(int boundarytype, double (*boundaryFunc)(int,int))
  * 
@@ -49,10 +58,10 @@ int PoissonBuilder::SetForce(double (*forceFunc)(int, int, int, int)){
  * Set boundary type & function.
  * 
  ******************************************************/
-int PoissonBuilder::SetBoundary(int boundarytype, double (*boundaryFunc)(int,int)){
-	//left boundary
+int PoissonBuilder::SetBoundary(int boundarytype, double (*boundaryFunc)(int,int,int,int)){
+	//x=0 boundary
 	//store in _boundary[0]
-	if(boundarytype && PB_BOUND_LEFT){
+	if(boundarytype & PB_BOUND_X0){
 		_boundaryType[0] = boundarytype & 0x3;
 		_boundaryFunc[0] = boundaryFunc;
 		if(_debugInfo && GetDebugBoundaryTypeStr(boundarytype)){
@@ -60,9 +69,9 @@ int PoissonBuilder::SetBoundary(int boundarytype, double (*boundaryFunc)(int,int
 				GetDebugBoundaryTypeStr(boundarytype));
 		}
 	}
-	//right boundary
+	//x=dimx-1 boundary
 	//store in _boundary[1]
-	if(boundarytype && PB_BOUND_RIGHT){
+	if(boundarytype & PB_BOUND_X1){
 		_boundaryType[1] = boundarytype & 0x3;
 		_boundaryFunc[1] = boundaryFunc;
 		if(_debugInfo && GetDebugBoundaryTypeStr(boundarytype)){
@@ -70,9 +79,9 @@ int PoissonBuilder::SetBoundary(int boundarytype, double (*boundaryFunc)(int,int
 				GetDebugBoundaryTypeStr(boundarytype));
 		}
 	}
-	//up boundary
+	//y=0 boundary
 	//store in _boundary[2]
-	if(boundarytype && PB_BOUND_UP){
+	if(boundarytype & PB_BOUND_Y0){
 		_boundaryType[2] = boundarytype & 0x3;
 		_boundaryFunc[2] = boundaryFunc;
 		if(_debugInfo && GetDebugBoundaryTypeStr(boundarytype)){
@@ -80,9 +89,9 @@ int PoissonBuilder::SetBoundary(int boundarytype, double (*boundaryFunc)(int,int
 				GetDebugBoundaryTypeStr(boundarytype));
 		}
 	}
-	//down boundary
+	//y=dimy-1 boundary
 	//store in _boundary[3]
-	if(boundarytype && PB_BOUND_DOWN){
+	if(boundarytype & PB_BOUND_Y1){
 		_boundaryType[3] = boundarytype & 0x3;
 		_boundaryFunc[3] = boundaryFunc;
 		if(_debugInfo && GetDebugBoundaryTypeStr(boundarytype)){
@@ -92,6 +101,17 @@ int PoissonBuilder::SetBoundary(int boundarytype, double (*boundaryFunc)(int,int
 	}
 }
 
+
+int PoissonBuilder::SetHole(int y, int x, int type, double v){
+	if(y<0 || y>=_dimy || x<0 || x>=_dimx)
+		return -1;
+	_holeMaskMap[y*_dimx+x]=type;
+	_holeBoundaryMap[y*_dimx+x]=v;
+}
+
+int* PoissonBuilder::GetHoleMask(){
+	return _holeMaskMap;
+}
 
 /******************************************************
  * Function:GetLaplacianMatrix()
@@ -120,35 +140,78 @@ Eigen::SparseMatrix<double> PoissonBuilder::GetLaplacianMatrix(){
 	for(int i=0;i<_dimy;i++)
 		for(int j=0;j<_dimx;j++)
 		{
+			//skip if it's hole
+			if(_holeMaskMap[i*_dimx+j]!=0){
+				coefficients.push_back(Eigen::Triplet<double>( i*_dimx+j, i*_dimx+j, 1));
+				continue;
+			}
+
+
 			//para of A(i+1,j) & A(i-1,j)
-			//if up boundary	
+			//if y=0 boundary	
 			if(i==0){
 				coefficients.push_back(Eigen::Triplet<double>( i*_dimx+j, (i+1)*_dimx+j, 1 + GetBoundaryPara(_boundaryType[2])));
 			}
-			//if down boundary
+			//if y=1 boundary
 			else if(i==_dimy-1){
 				coefficients.push_back(Eigen::Triplet<double>( i*_dimx+j, (i-1)*_dimx+j, 1 + GetBoundaryPara(_boundaryType[3])));
 			}
 			//no boundary in y-axis direction
 			else{
-				coefficients.push_back(Eigen::Triplet<double>( i*_dimx+j, (i+1)*_dimx+j, 1));
-				coefficients.push_back(Eigen::Triplet<double>( i*_dimx+j, (i-1)*_dimx+j, 1));
+				int iplus = 0;
+				int iminus = 0;
+
+				if(_holeMaskMap[(i+1)*_dimx+j]==0)//Normal
+					iplus += 1;
+				else if(_holeMaskMap[(i+1)*_dimx+j]==1)//Dirichlet
+					;//iplus = 0;
+				else if(_holeMaskMap[(i+1)*_dimx+j]==2)//Neumann
+					iminus += 1;
+				
+				if(_holeMaskMap[(i-1)*_dimx+j]==0)//Normal
+					iminus += 1;
+				else if(_holeMaskMap[(i-1)*_dimx+j]==1)//Dirichlet
+					;//iminus = 0;
+				else if(_holeMaskMap[(i-1)*_dimx+j]==2)//Neumann
+					iplus += 1;				
+
+				coefficients.push_back(Eigen::Triplet<double>( i*_dimx+j, (i+1)*_dimx+j, iplus));
+				coefficients.push_back(Eigen::Triplet<double>( i*_dimx+j, (i-1)*_dimx+j, iminus));
+
+				//printf("(%d,%d) ^%d v%d\t",i,j,iminus, iplus);
 			}
 			
 			//para of A(i,j+1) & A(i,j-1)
-			//if left boundary
+			//if x=0 boundary
 			if(j==0){
 				coefficients.push_back(Eigen::Triplet<double>( i*_dimx+j, i*_dimx+j+1, 1 + GetBoundaryPara(_boundaryType[0]) ));
 			}
-			//if right boundary
+			//if x=dimx-1 boundary
 			else if(j==_dimx-1){
 				coefficients.push_back(Eigen::Triplet<double>( i*_dimx+j, i*_dimx+j-1, 1 + GetBoundaryPara(_boundaryType[1]) ));
 			}
 			//no boundary in x-axis direction
 			else{
+				int jplus = 0;
+				int jminus = 0;
 
-				coefficients.push_back(Eigen::Triplet<double>( i*_dimx+j, i*_dimx+j+1, 1));
-				coefficients.push_back(Eigen::Triplet<double>( i*_dimx+j, i*_dimx+j-1, 1));
+				if(_holeMaskMap[i*_dimx+j+1]==0)//Normal
+					jplus += 1;
+				else if(_holeMaskMap[i*_dimx+j+1]==1)//Dirichlet
+					;//jplus = 0;
+				else if(_holeMaskMap[i*_dimx+j+1]==2)//Neumann
+					jminus += 1;
+				
+				if(_holeMaskMap[i*_dimx+j-1]==0)//Normal
+					jminus += 1;
+				else if(_holeMaskMap[i*_dimx+j-1]==1)//Dirichlet
+					;//jminus = 0;
+				else if(_holeMaskMap[i*_dimx+j-1]==2)//Neumann
+					jplus += 1;				
+
+				coefficients.push_back(Eigen::Triplet<double>( i*_dimx+j, i*_dimx+j+1, jplus));
+				coefficients.push_back(Eigen::Triplet<double>( i*_dimx+j, i*_dimx+j-1, jminus));
+				//printf("(%d,%d) <%d >%d\t",i,j, jminus, jplus);
 			}
 			
 			//para of A(i,j)
@@ -183,106 +246,183 @@ Eigen::VectorXd PoissonBuilder::GetForceVector(){
 	for(int i=0;i<_dimy;i++){
 		for(int j=0;j<_dimx;j++)
 		{	
-			b(i*_dimx+j)=_forceFunc(i,j,_dimy,_dimx);
+			if(_holeMaskMap[i*_dimx+j] == 0)
+				b(i*_dimx+j)=_forceFunc(i,j,_dimy,_dimx)*_dx*_dx;
 		}
 	}
 
-	//use different boundary condition
-
 	int i,j;
 
+	//use different boundary condition
 	j=0;
-	//left boundary
+	//x=0 boundary
 	for(i = 0; i < _dimy; i++){
+		if(_holeMaskMap[i*_dimx+j]==0)
 		if(_boundaryType[0] & PB_BOUND_Dirichlet)
-			//Dirichlet
-			b(i*_dimx+j)-=_boundaryFunc[0](i, _dimy);
+			//Dirichlet, boundary is the value on (-1,i)
+			b(i*_dimx+j)-=_boundaryFunc[0](i,-1, _dimy, _dimx);
 		else if(_boundaryType[0] & PB_BOUND_Neumann)
-			//Neumann
-			b(i*_dimx+j)+=_boundaryFunc[0](i, _dimy) * _dx * 2;
+			//Neumann, boundary is the gradient on (0,i)
+			b(i*_dimx+j)+=_boundaryFunc[0](i, 0, _dimy, _dimx) * _dx * 2;
 	}
 
-	//right boundary
+	//x=dimx-1 boundary
 	j=_dimx-1;
 	for(i = 0; i < _dimy; i++){
+		if(_holeMaskMap[i*_dimx+j]==0)
 		if(_boundaryType[1] & PB_BOUND_Dirichlet)
-			//Dirichlet
-			b(i*_dimx+j)-=_boundaryFunc[1](i, _dimy);
+			//Dirichlet, boundary is the value on (dimx,i)
+			b(i*_dimx+j)-=_boundaryFunc[1](i, _dimx, _dimy, _dimx);
 		else if(_boundaryType[1] & PB_BOUND_Neumann)
-			//Neumann
-			b(i*_dimx+j)+=_boundaryFunc[1](i, _dimy) * _dx * 2;
+			//Neumann, boundary is the gradient on (dimx-1,i)
+			b(i*_dimx+j)-=_boundaryFunc[1](i, _dimx-1, _dimy, _dimx) * _dx * 2;
 	}
 
-	//up boundary
+	//y=0 boundary
 	i=0;
 	for(j = 0; j < _dimx; j++){
+		if(_holeMaskMap[i*_dimx+j]==0)
 		if(_boundaryType[2] & PB_BOUND_Dirichlet)
-			//Dirichlet
-			b(i*_dimx+j)-=_boundaryFunc[2](j, _dimx);
+			//Dirichlet, boundary is the value on (j,-1)
+			b(i*_dimx+j)-=_boundaryFunc[2](-1, j, _dimy, _dimx);
 		else if(_boundaryType[2] & PB_BOUND_Neumann)
-			//Neumann
-			b(i*_dimx+j)+=_boundaryFunc[2](j, _dimx) * _dx * 2;
+			//Neumann, boundary is the gradient on (j,0)
+			b(i*_dimx+j)+=_boundaryFunc[2](0, j, _dimy, _dimx) * _dx * 2;
 	}
 
-	//down boundary
+	//y=dimy-1 boundary
 	i=_dimy-1;
 	for(j = 0; j < _dimx; j++){
+		if(_holeMaskMap[i*_dimx+j]==0)
 		if(_boundaryType[3] & PB_BOUND_Dirichlet)
-			//Dirichlet
-			b(i*_dimx+j)-=_boundaryFunc[3](j, _dimx);
+			//Dirichlet, boundary is the value on (j,dimy)
+			b(i*_dimx+j)-=_boundaryFunc[3](_dimy, j, _dimy, _dimx);
 		else if(_boundaryType[3] & PB_BOUND_Neumann)
-			//Neumann
-			b(i*_dimx+j)+=_boundaryFunc[3](j, _dimx) * _dx * 2;
+			//Neumann, boundary is the value on (j,dimy-1)
+			b(i*_dimx+j)-=_boundaryFunc[3](_dimy-1, j, _dimy, _dimx) * _dx * 2;
 	}
+
+	for(i = 0; i < _dimy; i++)
+		for(j = 0; j < _dimx; j++)
+			if(_holeMaskMap[i*_dimx+j] == 0){//not hole
+				//y-1 neighbour is hole
+				if(i-1>0 && _holeMaskMap[(i-1)*_dimx+j])
+
+					if(_holeMaskMap[(i-1)*_dimx+j]==1)
+						b(i*_dimx+j)-=_holeBoundaryMap[(i-1)*_dimx+j];
+					else if(_holeMaskMap[(i-1)*_dimx+j]==2)
+						b(i*_dimx+j)+= _dx * 2 * _gradientYFunc(i,j,_dimy,_dimx);
+
+				//y+1 neighbour is hole
+				if(i+1<_dimy && _holeMaskMap[(i+1)*_dimx+j])
+
+					if(_holeMaskMap[(i+1)*_dimx+j]==1)
+						b(i*_dimx+j)-=_holeBoundaryMap[(i+1)*_dimx+j];
+					else if(_holeMaskMap[(i+1)*_dimx+j]==2)
+						b(i*_dimx+j)-= _dx * 2 * _gradientYFunc(i,j,_dimy,_dimx);
+
+				//x-1 neighbour is hole
+				if(j-1>0 && _holeMaskMap[i*_dimx+j-1])
+
+					if(_holeMaskMap[i*_dimx+j-1]==1)
+						b(i*_dimx+j)-=_holeBoundaryMap[i*_dimx+j-1];
+					else if(_holeMaskMap[i*_dimx+j-1]==2)
+						b(i*_dimx+j)+= _dx * 2 * _gradientXFunc(i,j,_dimy,_dimx);
+
+				//x+1 neighbour is hole
+				if(j+1<_dimx && _holeMaskMap[i*_dimx+j+1])
+
+					if(_holeMaskMap[i*_dimx+j+1]==1)
+						b(i*_dimx+j)-=_holeBoundaryMap[i*_dimx+j+1];
+					else if(_holeMaskMap[i*_dimx+j+1]==2)
+						b(i*_dimx+j)-= _dx * 2 * _gradientXFunc(i,j,_dimy,_dimx);
+			}else{//is a hole
+				b(i*_dimx+j) = _holeBoundaryMap[i*_dimx+j];
+				//cout<<"leak b = "<<_holeBoundaryMap[i*_dimx+j]<<endl;
+			}
 
 	return b;
 }
 
 
 
-//zero force funciton
-double zeroff(int, int, int, int){
-	return 0;
+double sinpowof(int yi, int xi, int dimy, int dimx){
+	Eigen::ArrayXd arrx= Eigen::ArrayXd::LinSpaced(dimx, -SQRTPI,SQRTPI);
+	Eigen::ArrayXd arry= Eigen::ArrayXd::LinSpaced(dimy, -SQRTPI,SQRTPI);
+	double x = arrx(xi);
+	double y = arry(yi);
+	return sin(x*x+y*y);
 }
-
-//sqrt(Pi)
-#define SQRTPI 1.77245385091
 
 //force function of 
 //z = sin(x*x+y*y)
 //laplacian(z) = 4*cos(x*x+y*y) - 4*sin(x*x+y*y)*(x*x+y*y)
-double sinpowff(int xi, int yi, int dimx, int dimy){
-	Eigen::ArrayXd arrx= Eigen::ArrayXd::LinSpaced(dimx+2, -SQRTPI,SQRTPI);
-	Eigen::ArrayXd arry= Eigen::ArrayXd::LinSpaced(dimy+2, -SQRTPI,SQRTPI);
-	double x = arrx(xi+1);
-	double y = arry(yi+1);
-	return 2*2*cos(x*x + y*y) - sin(x*x + y*y)*4*(x*x+y*y);
+double sinpowff(int yi, int xi, int dimy, int dimx){
+	Eigen::ArrayXd arrx= Eigen::ArrayXd::LinSpaced(dimx, -SQRTPI,SQRTPI);
+	Eigen::ArrayXd arry= Eigen::ArrayXd::LinSpaced(dimy, -SQRTPI,SQRTPI);
+	double x = arrx(xi);
+	double y = arry(yi);
+	return 4*cos(x*x + y*y) - sin(x*x + y*y)*4*(x*x+y*y);
 
 }
 
 //boundary condition of
 //z = sin(x*x+y*y)
-double sinpowbc(int i, int total){
-	Eigen::ArrayXd arr= Eigen::ArrayXd::LinSpaced(total, -SQRTPI,SQRTPI).pow(2);
+double sinpowbc(int yi, int xi, int dimy, int dimx){
+	Eigen::ArrayXd arrx= Eigen::ArrayXd::LinSpaced(dimx, -SQRTPI,SQRTPI);
+	Eigen::ArrayXd arry= Eigen::ArrayXd::LinSpaced(dimy, -SQRTPI,SQRTPI);
+	
+	double x,y;
+	if(xi>=0&&xi<dimx)
+		x = arrx(xi);
+	else
+		x = SQRTPI*(dimx+1)/(dimx-1);
+	
+	if(yi>=0&&yi<dimy)
+		y = arry(yi);
+	else
+		y = SQRTPI*(dimy+1)/(dimy-1);
+	
+	return sin(x*x+y*y);
 	//printf("%f\t",arr(i));
-	return sin(arr(i)+SQRTPI*SQRTPI);
+	//return sin(arr(i)+(SQRTPI*(total+1)/(total-1))*(SQRTPI*(total+1)/(total-1)));
 }
 
-
-//force function of 
-//z = sin(x+y)
-//laplacian(z) = -sin(x+y)
-double sinff(int xi, int yi, int dimx, int dimy){
-	Eigen::ArrayXd arrx= Eigen::ArrayXd::LinSpaced(dimx, 0,M_PI);
-	Eigen::ArrayXd arry= Eigen::ArrayXd::LinSpaced(dimy, 0,M_PI);
+//gradient condition on x-axis of 
+//z = sin(x*x+y*y)
+//dz/dx = 2 * x * cos(x*x+y*y)
+double sinpowgx(int yi, int xi, int dimy, int dimx){
+	Eigen::ArrayXd arrx= Eigen::ArrayXd::LinSpaced(dimx, -SQRTPI,SQRTPI);
+	Eigen::ArrayXd arry= Eigen::ArrayXd::LinSpaced(dimy, -SQRTPI,SQRTPI);
 	double x = arrx(xi);
 	double y = arry(yi);
-	return -sin(x+y);	
+	return x * 2 * cos(x*x+y*y);
 }
 
-//boundary condition of
-//z = sin(x+y)
-double sinbc(int i, int total){
-	Eigen::ArrayXd arr= Eigen::ArrayXd::LinSpaced(total, 0,M_PI);
-	return sin(arr(i));
+//gradient condition on y-axis of 
+//z = sin(x*x+y*y)
+//dz/dy = 2 * y * cos(x*x+y*y)
+double sinpowgy(int yi, int xi, int dimy, int dimx){
+	Eigen::ArrayXd arrx= Eigen::ArrayXd::LinSpaced(dimx, -SQRTPI,SQRTPI);
+	Eigen::ArrayXd arry= Eigen::ArrayXd::LinSpaced(dimy, -SQRTPI,SQRTPI);
+	double x = arrx(xi);
+	double y = arry(yi);
+	return y * 2 * cos(x*x+y*y);
+}
+
+//z = x+y
+double plusff(int yi, int xi, int dimy, int dimx){
+	return 0;
+}
+
+
+double plusbc(int yi, int xi, int dimy, int dimx){
+	return yi+xi;
+}
+
+double plusgx(int yi, int xi, int dimy, int dimx){
+	return 1;
+}
+double plusgy(int yi, int xi, int dimy, int dimx){
+	return 1;
 }

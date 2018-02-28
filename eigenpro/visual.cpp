@@ -3,13 +3,13 @@
 using namespace std;
 using namespace Eigen;
 
-MatGraph* matGraph = NULL;
-void SetMatGraph(MatGraph *_matGraph){
-	matGraph = _matGraph;
+MatGraph2d* matGraph2d = NULL;
+void SetMatGraph2d(MatGraph2d *_matGraph2d){
+	matGraph2d = _matGraph2d;
 }
 
-GLfloat camerapos[3] = {0, 1, 0};
-GLfloat cameradir[3] = {sqrt(2)/2, 0, sqrt(2)/2};
+GLfloat camerapos[3] = {-4, 6, -4};
+GLfloat cameradir[3] = {sqrt(2)/2, -0.4, sqrt(2)/2};
 const GLfloat Pi = 3.1415926;
 
 
@@ -48,8 +48,8 @@ void display()
 	
 	
 
-	if(matGraph)
-		matGraph->ShowResult();
+	if(matGraph2d)
+		matGraph2d->ShowResult();
 	glutSwapBuffers();
 }
 
@@ -162,42 +162,44 @@ void SetMatVertexColor(double minHeight, double maxHeight, double height){
 }
 
 
+void MatGraph2d::SetMask(int *mask){
+	_mask = mask;
+}
 
-
-void MatGraph::ShowResult(){
+void MatGraph2d::ShowResult(){
 	int X = 0, Y = 0;//设置循环变量
 	double x, y, z;
-	int r = _mat.rows();
-	int c = _mat.cols();
 
 
 	//draw grid
-	glColor4f(1.0f, 1.0f, 1.0f, 0.8f);// 重置颜色
-	glBegin( GL_LINES );
-	for ( X = 0; X < r-1; X ++ )
-	for ( Y = 0; Y < c-1; Y ++ )
-	{
-		glVertex3f(_horizontalScale * X    , 0, _horizontalScale * Y    );
-		glVertex3f(_horizontalScale * X    , 0, _horizontalScale * (Y+1));
+	if(_renderType){
+		glColor4f(1.0f, 1.0f, 1.0f, 0.8f);// 重置颜色
+		glBegin( GL_LINES );
+		for ( X = 0; X < _dimx-1; X ++ )
+		for ( Y = 0; Y < _dimy-1; Y ++ )
+		{
+			glVertex3f(_scale * X    , 0, _scale * Y    );
+			glVertex3f(_scale * X    , 0, _scale * (Y+1));
 
-		glVertex3f(_horizontalScale * X    , 0, _horizontalScale * (Y+1));
-		glVertex3f(_horizontalScale * (X+1), 0, _horizontalScale * (Y+1));
+			glVertex3f(_scale * X    , 0, _scale * (Y+1));
+			glVertex3f(_scale * (X+1), 0, _scale * (Y+1));
 
-		glVertex3f(_horizontalScale * (X+1), 0, _horizontalScale * (Y+1));
-		glVertex3f(_horizontalScale * (X+1), 0, _horizontalScale * Y    );
+			glVertex3f(_scale * (X+1), 0, _scale * (Y+1));
+			glVertex3f(_scale * (X+1), 0, _scale * Y    );
 
-		glVertex3f(_horizontalScale * (X+1), 0, _horizontalScale * Y    );
-		glVertex3f(_horizontalScale * X    , 0, _horizontalScale * Y    );
+			glVertex3f(_scale * (X+1), 0, _scale * Y    );
+			glVertex3f(_scale * X    , 0, _scale * Y    );
+		}
+		glColor3f(1,0,0);
+		glVertex3f(_scale * 2 * _dimx, 0, 0);
+		glVertex3f(-_scale * 2 * _dimx, 0, 0);
+		
+		glColor3f(0,1,0);
+		glVertex3f(0, 0, _scale * 2 * _dimy);
+		glVertex3f(0, 0, -_scale * 2 * _dimy);
+
+		glEnd();
 	}
-	glColor3f(1,0,0);
-	glVertex3f(_horizontalScale * 2 * r, 0, 0);
-	glVertex3f(-_horizontalScale * 2 * r, 0, 0);
-	
-	glColor3f(0,1,0);
-	glVertex3f(0, 0, _horizontalScale * 2 * c);
-	glVertex3f(0, 0, -_horizontalScale * 2 * c);
-
-	glEnd();
 
 	glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
@@ -205,60 +207,51 @@ void MatGraph::ShowResult(){
 
 
 	double maxHeight = -1000000, minHeight = 1000000;
-	for(int i = 0; i<r; i++)
-	for(int j = 0; j<c; j++)
+	for(int i = 0; i<_dimx; i++)
+	for(int j = 0; j<_dimy; j++)
 	{
-		maxHeight = maxHeight>_mat(i,j) ? maxHeight:_mat(i,j);
-		minHeight = minHeight<_mat(i,j) ? minHeight:_mat(i,j);
+		maxHeight = maxHeight>_mat[j*_dimx+i] ? maxHeight:_mat[j*_dimx+i];
+		minHeight = minHeight<_mat[j*_dimx+i] ? minHeight:_mat[j*_dimx+i];
 	}
-	if(_renderType)//选择渲染模式
-		glBegin( GL_QUADS );// 渲染为四边形
-	else
-		glBegin( GL_LINES );// 渲染为直线
+	glBegin( GL_QUADS );// 渲染为四边形
 
-	for ( X = 0; X < r-1; X ++ )
-	for ( Y = 0; Y < c-1; Y ++ )
+	for ( X = 0; X < _dimx-1; X ++ )
+	for ( Y = 0; Y < _dimy-1; Y ++ )
 	{
+		if(_mask!=NULL && 
+			( (_mask[Y*_dimx+X]!=0) || (_mask[Y*_dimx+X+1]!=0)||(_mask[(Y+1)*_dimx+X]!=0)||(_mask[(Y+1)*_dimx+X+1]!=0) )  
+		  )
+			continue;
 		// 绘制(x,y)处的顶点
 		// 获得(x,y,z)坐标
-		x = _horizontalScale * X;
-		y = _verticalScale * _mat(X,Y);
-		z = _horizontalScale * Y;
-		SetMatVertexColor(minHeight, maxHeight, _mat(X,Y));
-		glVertex3f(x, y, z);
+		x = _scale * X;
+		y = _verticalScale * _mat[Y*_dimx+X];
+		z = _scale * Y;
+		SetMatVertexColor(minHeight, maxHeight, _mat[Y*_dimx+X]);
+		glVertex3f(x, y*_renderType, z);
 
 		// 绘制(x,y+1)处的顶点
-		x = _horizontalScale * X;
-		y = _verticalScale * _mat(X,Y+1);
-		z = _horizontalScale * (Y+1);
-		SetMatVertexColor(minHeight, maxHeight, _mat(X,Y+1));
-		glVertex3f(x, y, z); 
-		if(!_renderType) 
-			glVertex3f(x, y, z); 
+		x = _scale * X;
+		y = _verticalScale * _mat[(Y+1)*_dimx+X];
+		z = _scale * (Y+1);
+		SetMatVertexColor(minHeight, maxHeight, _mat[(Y+1)*_dimx+X]);
+		glVertex3f(x, y*_renderType, z); 
+
 
 		// 绘制(x+1,y+1)处的顶点
-		x = _horizontalScale * (X+1);
-		y = _verticalScale * _mat(X+1,Y+1);
-		z = _horizontalScale * (Y+1);
-		SetMatVertexColor(minHeight, maxHeight, _mat(X+1,Y+1));
-		glVertex3f(x, y, z); 
-		if(!_renderType) 
-			glVertex3f(x, y, z); 
+		x = _scale * (X+1);
+		y = _verticalScale * _mat[(Y+1)*_dimx+X+1];
+		z = _scale * (Y+1);
+		SetMatVertexColor(minHeight, maxHeight, _mat[(Y+1)*_dimx+X+1]);
+		glVertex3f(x, y*_renderType, z); 
+ 
 
 		// 绘制(x+1,y)处的顶点
-		x = _horizontalScale * (X+1);
-		y = _verticalScale * _mat(X+1,Y);
-		z = _horizontalScale * Y;
-		SetMatVertexColor(minHeight, maxHeight, _mat(X+1,Y));
-		glVertex3f(x, y, z);
-		if(!_renderType) {
-			glVertex3f(x, y, z); 
-			x = _horizontalScale * X;
-			y = _verticalScale * _mat(X,Y);
-			z = _horizontalScale * Y;
-			SetMatVertexColor(minHeight, maxHeight, _mat(X,Y));
-			glVertex3f(x, y, z);
-		}
+		x = _scale * (X+1);
+		y = _verticalScale * _mat[Y*_dimx+X+1];
+		z = _scale * Y;
+		SetMatVertexColor(minHeight, maxHeight, _mat[Y*_dimx+X+1]);
+		glVertex3f(x, y*_renderType, z);
 	}
 	glEnd();
 

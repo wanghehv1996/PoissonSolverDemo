@@ -8,19 +8,22 @@
 
 
 
-class MatGraph{
+class MatGraph2d{
 public:
-	MatGraph(Eigen::MatrixXd mat, double horizontalScale, double verticalScale, bool renderType = true):
-		_mat(mat),_horizontalScale(horizontalScale),_verticalScale(verticalScale),_renderType(renderType){};
+	MatGraph2d(double *mat, int dimx, int dimy, double scale, double verticalScale, bool renderType = true):
+		_mat(mat),_dimx(dimx), _dimy(dimy),_scale(scale),_verticalScale(verticalScale),_renderType(renderType),_mask(NULL){};
+	void SetMask(int *);
 	void ShowResult();
 private:
-	Eigen::MatrixXd _mat;
-	double _horizontalScale;
+	int *_mask;
+	double *_mat;
+	int _dimx, _dimy;
+	double _scale;
 	double _verticalScale;
 	int _renderType;
 };
 
-void SetMatGraph(MatGraph *);
+void SetMatGraph2d(MatGraph2d *);
 void InitGL(int argc, char** argv);
 
 void display();
