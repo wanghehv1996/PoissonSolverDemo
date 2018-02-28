@@ -10,10 +10,8 @@
 using namespace std;
 using namespace Eigen;
 
-#include "visual.h"
+#include "visual3d.h"
 #include "PoissonBuilder.h"
-
-
 
 double absoluteError(double *mat1, double *mat2, int size){
 	double totalerror = 0;
@@ -25,40 +23,51 @@ double absoluteError(double *mat1, double *mat2, int size){
 
 int main(int argc, char** argv){
 
-	//solve Ax = b; 
-	
 	//1. Build the problem
-	int dimx = 50;
-	int dimy = 50;
-	int gridNum = dimx*dimy;
-	PoissonBuilder poissonBuilder(dimy, dimx, SQRTPI*2/(dimx-1));
-	poissonBuilder.SetForce(sinpowff);
-	poissonBuilder.SetGradientX(sinpowgx);
-	poissonBuilder.SetGradientY(sinpowgy);
+	int dimx = 10;
+	int dimy = 10;
+	int dimz = 10;
+	int gridNum = dimx*dimy*dimz;
+
+	PoissonBuilder poissonBuilder(dimz, dimy, dimx, 1);
+	poissonBuilder.SetForce(plusff);
+	poissonBuilder.SetGradientX(plusgx);
+	poissonBuilder.SetGradientY(plusgy);
+	poissonBuilder.SetGradientZ(plusgz);
 	poissonBuilder.SetBoundary(PB_BOUND_Dirichlet | 
-		PB_BOUND_X0 | PB_BOUND_X1 |
-		PB_BOUND_Y0 | PB_BOUND_Y1,
-		sinpowbc);
+		PB_BOUND_X0 | PB_BOUND_Y0 | PB_BOUND_Z0 |
+		PB_BOUND_X1 | PB_BOUND_Y1 | PB_BOUND_Z1,
+		plusbc);
 	// poissonBuilder.SetBoundary(PB_BOUND_Neumann | 
 	// 	PB_BOUND_X0 | PB_BOUND_X1,
-	// 	sinpowgx);
+	// 	plusgx);	
 	// poissonBuilder.SetBoundary(PB_BOUND_Neumann | 
 	// 	PB_BOUND_Y0 | PB_BOUND_Y1,
-	// 	sinpowgy);
+	// 	plusgy);
+	// poissonBuilder.SetBoundary(PB_BOUND_Neumann | 
+	// 	PB_BOUND_Z0 | PB_BOUND_Z1,
+	// 	plusgz);
 
-	//2. Set Some Holes
 	Eigen::ArrayXd arrx= Eigen::ArrayXd::LinSpaced(dimx, -SQRTPI,SQRTPI);
 	Eigen::ArrayXd arry= Eigen::ArrayXd::LinSpaced(dimy, -SQRTPI,SQRTPI);
-	for(int I=0;I<5;I++)
-		for(int J=0;J<5;J++)
-			for(int i=2;i<8;i++)
-				for(int j=2;j<8;j++){
-					double y = arry(I*10+i);
-					double x = arrx(J*10+j);
-					poissonBuilder.SetHole(I*10+i,J*10+j,PB_BOUND_Neumann,sin(y*y+x*x));
-					//if set the hole, gridNum --
-					gridNum--;
-				}
+
+	//2. Set Some Holes
+	for(int I=0;I<1;I++)
+	for(int J=0;J<1;J++)
+	for(int K=0;K<1;K++)
+		for(int i=2;i<8;i++)
+		for(int j=2;j<8;j++)
+		for(int k=2;k<8;k++){
+			poissonBuilder.SetHole(I*10+i,J*10+j,K*10+k,PB_BOUND_Neumann,i+j+k);
+			gridNum--;
+		}
+
+	// for(int i = 3;i<7;i++)
+	// 	for(int j = 3;j<7;j++)
+	// 		for(int k = 3;k<7;k++){
+	// 			poissonBuilder.SetHole(i,j,k,2,i+j+k);
+	// 			gridNum--;
+	// 		}
 
 	//3. Solve the Problem Ax=b
 	//3.1. Get Laplacian Matrix A
@@ -90,48 +99,44 @@ int main(int argc, char** argv){
 	//3.3. Get Force Vector
 	printf("GetForceVector\n");
 	VectorXd bv = poissonBuilder.GetForceVector();
-
-	Eigen::MatrixXd bm(dimy,dimx);
-	for(int i=0;i<dimy;i++)
-		for(int j=0;j<dimx;j++){
-			bm(i,j) = bv(i*dimx+j);
-		}
-	//cout<<endl<< "b = \n"<<bm<<endl;
+	double bm[dimx*dimy*dimz];
+	for(int i=0;i<dimx*dimy*dimz;i++){
+		bm[i]=bv(i);
+	}
 
 	//3.4. Solve the Equaltions
+	printf("SolveEqualtions");
 	Eigen::VectorXd x = chol.solve(bv);
-	double *result = new double[dimx*dimy];
-	for(int i=0;i<dimx*dimy;i++){
+	double *result = new double[dimx*dimy*dimz];
+	for(int i=0;i<dimx*dimy*dimz;i++){
 		result[i]=x(i);
 	}
 
-
 	//4. Compare the Result
 	//4.1. Get the Original Result
-	double* originalResult = new double[dimx*dimy];
+	double* originalResult = new double[dimx*dimy*dimz];
 	double minResult=1000000, maxResult=-1000000;
-	for(int i=0;i<dimy;i++){
-		for(int j=0;j<dimx;j++){
-			originalResult[i*dimx+j]=sinpowof(i,j,dimy,dimx);
-			minResult = (minResult < originalResult[i*dimx+j])? minResult:originalResult[i*dimx+j];
-			maxResult = (maxResult > originalResult[i*dimx+j])? maxResult:originalResult[i*dimx+j];
-		}
+	for(int i=0;i<dimz;i++)
+	for(int j=0;j<dimy;j++)
+	for(int k=0;k<dimx;k++){
+		originalResult[i*dimx*dimy+j*dimx+k]=plusof(i,j,k,dimz,dimy,dimx);
+		minResult = (minResult < originalResult[i*dimx*dimy+j*dimx+k])? minResult:originalResult[i*dimx*dimy+j*dimx+k];
+		maxResult = (maxResult > originalResult[i*dimx*dimy+j*dimx+k])? maxResult:originalResult[i*dimx*dimy+j*dimx+k];
 	}
 
 	//4.2. Calculate the Errors
-	cout<<"The resolution of the matrix is "<<dimx<<" x "<<dimy<<endl<<
+	cout<<"The resolution of the matrix is "<<dimx<<" x "<<dimy<<" x "<<dimz<<endl<<
 		"In original result, max = "<<maxResult<<", min = "<<minResult<<endl<<
 		"There are "<<gridNum<<"grid in calculation"<<endl;
-	double error = absoluteError(result, originalResult, dimx*dimy);
+	double error = absoluteError(result, originalResult, dimx*dimy*dimz);
 	cout<<"error = "<<error<<endl<<
 		"average error = "<<error/gridNum<<endl<<
 		"relative error = "<<error/gridNum/(maxResult-minResult)/(maxResult-minResult)<<endl;
 
 	//5. Show the result with OpenGL
-	MatGraph2d * mat = new MatGraph2d(result,dimx,dimy, 0.2,1,true);
+	MatGraph3d * mat = new MatGraph3d(result, dimx, dimy, dimz, 0.5, true);
 	mat->SetMask(poissonBuilder.GetHoleMask());
-	SetMatGraph2d(mat);
+	SetMatGraph3d(mat);
 	InitGL(argc,argv);
-
 	return 0;
 }

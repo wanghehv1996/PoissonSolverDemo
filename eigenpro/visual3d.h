@@ -8,22 +8,21 @@
 
 
 
-class MatGraph2d{
+class MatGraph3d{
 public:
-	MatGraph2d(double *mat, int dimx, int dimy, double scale, double verticalScale, bool renderType = true):
-		_mat(mat),_dimx(dimx), _dimy(dimy),_scale(scale),_verticalScale(verticalScale),_renderType(renderType),_mask(NULL){};
+	MatGraph3d(double *mat, int dimx, int dimy, int dimz, double scale, bool renderType = true):
+		_mat(mat),_dimx(dimx), _dimy(dimy),_dimz(dimz),_scale(scale),_renderType(renderType),_mask(NULL){};
 	void SetMask(int *);
 	void ShowResult();
 private:
 	int *_mask;
 	double *_mat;
-	int _dimx, _dimy;
+	int _dimx, _dimy, _dimz;
 	double _scale;
-	double _verticalScale;
 	int _renderType;
 };
 
-void SetMatGraph2d(MatGraph2d *);
+void SetMatGraph3d(MatGraph3d *);
 void InitGL(int argc, char** argv);
 
 void display();
